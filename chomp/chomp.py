@@ -19,7 +19,7 @@ def get_raw_html(url):
 def clean_html(
     url_or_html=None,
     retain_images=False,
-    min_el_length=20,
+    min_word_length=2,
     retain_tags=None,
     retain_keywords=None,
 ):
@@ -87,8 +87,8 @@ def clean_html(
                 )
                 for keyword in ["social", "comment", "sidebar", "widget", "menu", "nav"]
             )
-            or len(element.get_text(strip=True)) < min_el_length
-        ):
+            or len(element.get_text(strip=True).split()) < min_word_length
+        ):  # Check word count
 
             remove_element = True
 
@@ -123,17 +123,12 @@ def clean_html(
 
     # ***KEY CHANGE: Flexible Content Retention (for non-header tags)***
     for tag in body_soup.find_all(retain_tags):
-        if tag.name not in [
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-        ]:  # Exclude headers from this check
+        if tag.name not in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             if any(keyword.lower() in tag.text.lower() for keyword in retain_keywords):
                 cleaned_html_parts.append(str(tag))
-            elif not tag.contents or (len(tag.get_text(strip=True)) < 10):
+            elif not tag.contents or (
+                len(tag.get_text(strip=True).split()) < min_word_length
+            ):  # Use word count
                 tag.decompose()
 
     for img in body_soup.find_all("img"):
@@ -142,7 +137,12 @@ def clean_html(
     for element in elements_to_remove:
         element.decompose()
 
-    cleaned_soup = BeautifulSoup("".join(cleaned_html_parts), "html.parser")
+    cleaned_soup = BeautifulSoup("".join(cleaned_html_parts), "lxml")  # lxml added
+    for element in cleaned_soup.find_all():
+        if not element.contents or (
+            len(element.get_text(strip=True)) == 0 and element.name not in ["img"]
+        ):  # check if tag is not an image tag
+            element.decompose()
 
     return str(cleaned_soup)
 
