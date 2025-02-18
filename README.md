@@ -13,18 +13,19 @@ Yet another web parser. Chomp is a collection of efficient and easy-to-use helpe
 
 Whether you're building AI-powered applications, summarizing web pages, or simply tidying up raw HTML, Chomp helps you digest the web effortlessly! 🚀
 
-## Getting Started
+## 🚀 Getting Started
 
 Install the required dependencies:
 
 ```sh
 pip install requests beautifulsoup4 html2text 
 ```
-## Baseic Usage
+
+## 💡 Basic Usage
 
 The simplest way to use Chomp is to convert a URL directly to Markdown:
 ```python
-from chomp.chomp import Chomp
+from chomp import Chomp
 
 # Basic URL to Markdown conversion
 chomp = Chomp(url="https://example.com")
@@ -36,7 +37,7 @@ chomp_with_images = Chomp(url="https://example.com", retain_images=True)
 markdown_with_images = chomp_with_images.url_to_markdown()
 ```
 
-### Working with Raw HTML
+### 🔨 Working with Raw HTML
 
 You can also process raw HTML content:
 ```python
@@ -52,12 +53,12 @@ chomp = Chomp(html=html_content, retain_images=True)
 markdown = chomp.convert_to_markdown()
 ```
 
-### Advanced Features
+### ⚙️ Advanced Features
 
 The `parse_html` function offers additional customization:
 
 ```python
-from chomp.chomp import parse_html, html_to_markdown
+from chomp import parse_html, html_to_markdown
 
 # Customize HTML parsing
 cleaned_html = parse_html(
@@ -71,20 +72,21 @@ cleaned_html = parse_html(
 # Convert to markdown with custom spacing
 markdown = html_to_markdown(cleaned_html, double_space=True)
 ```
-### Under the Hood
 
-1. Smart Content Extraction
+### 🔍 Under the Hood
+
+1. 🧠 Smart Content Extraction
 * Automatically removes navigation menus, sidebars, and advertisements
 * Preserves important content structure
 * Handles duplicate content removal
 * Image Processing
 
-2. Optional image retention with proper URL handling
+2. 🖼️ Optional image retention with proper URL handling
 * Converts relative image paths to absolute URLs
 * Removes duplicate images
 * Markdown Optimization
 
-3. Clean header hierarchy
+3. 📝 Clean header hierarchy
 * Proper spacing and formatting
 * Link preservation
 * Optional double-spacing for better readability
