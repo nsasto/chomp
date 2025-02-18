@@ -1,6 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
 import html2text
+import re
+from urllib.parse import urljoin
 
 
 def get_raw_html(url):
@@ -11,9 +13,7 @@ def get_raw_html(url):
     except requests.exceptions.RequestException as e:
         print(f"Error downloading URL: {e}")
         return ""
-
-    soup = BeautifulSoup(html_content, "html.parser")
-    return soup  # Return the *entire* soup, not just the body
+    return BeautifulSoup(html_content, "lxml")
 
 
 def clean_html(
@@ -23,112 +23,85 @@ def clean_html(
     retain_tags=None,
     retain_keywords=None,
 ):
-    """Downloads and cleans HTML content, with flexible content retention."""
-
     if retain_tags is None:
-        retain_tags = [
-            "p",
-            "strong",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-        ]  # Default retain tags
+        retain_tags = ["p", "strong", "h1", "h2", "h3", "h4", "h5", "h6"]
     if retain_keywords is None:
-        retain_keywords = []  # Default retain keywords
+        retain_keywords = []
 
-    if url_or_html is None:  # Handle if no URL or HTML is passed
+    if url_or_html is None:
         return ""
 
     if url_or_html.startswith(("http", "https", "www")):
         print("🌐 Downloading HTML content...")
-        soup = get_raw_html(url_or_html)  # Get the entire soup object
+        soup = get_raw_html(url_or_html)
     else:
         print("📄 Parsing provided HTML content...")
-        url_or_html = f"<div>{url_or_html}</div>"  # Wrap the HTML in a div tag
-        soup = BeautifulSoup(url_or_html, "html.parser")
+        soup = BeautifulSoup(f"<div>{url_or_html}</div>", "lxml")
 
     body = soup.find("body")
-
     if not body:
-        body = soup  # If no body tag is found, use the soup itself
-    body_soup = BeautifulSoup(
-        str(body), "html.parser"
-    )  # Correctly create body_soup from provided HTML
+        body = soup
 
-    # Remove irrelevant tags and content from the body
+    body_soup = BeautifulSoup(str(body), "lxml")
+
     for tag in body_soup.find_all(["nav", "aside", "footer", "script", "style"]):
         tag.decompose()
 
     cleaned_html_parts = []
     elements_to_remove = []
 
-    # Process container elements (div, section, article) from the BODY
+    keywords_regex = re.compile(
+        r"(social|comment(s)?|sidebar|widget|menu|nav)", re.IGNORECASE
+    )
+
     for element in body_soup.find_all(["div", "section", "article", "figure"]):
         remove_element = False
+
+        classes = element.get("class", [])
+        ids = element.get("id", [])
 
         if (
             "related" in element.text.lower()
             or any(
-                keyword
-                in (
-                    (
-                        element.get("class", [])
-                        if isinstance(element.get("class"), list)
-                        else [element.get("class", [])]
-                    )
-                    + (
-                        element.get("id", [])
-                        if isinstance(element.get("id"), list)
-                        else [element.get("id", [])]
-                    )
-                )
-                for keyword in ["social", "comment", "sidebar", "widget", "menu", "nav"]
+                keywords_regex.search(item)
+                for item in (classes if isinstance(classes, list) else [classes])
+                + (ids if isinstance(ids, list) else [ids])
+                if isinstance(item, str)
             )
             or len(element.get_text(strip=True).split()) < min_word_length
-        ):  # Check word count
-
+        ):
             remove_element = True
 
         if retain_images and not remove_element:
             for img in element.find_all("img"):
                 if img.has_attr("src"):
-                    img["src"] = img["src"]
+                    img["src"] = urljoin(
+                        url_or_html, img["src"]
+                    )  # Resolve relative paths
                 else:
                     img.decompose()
 
         if remove_element:
-            elements_to_remove.append(element)  # Add to removal list
+            elements_to_remove.append(element)
         else:
-            cleaned_html_parts.append(str(element))  # Keep if not removing
+            cleaned_html_parts.append(str(element))
 
-    # ***KEY CHANGE: Find Headers Outside the Body if not present inside***
     headers = body_soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
-    if not headers:  # Check if no headers are found in the body
-        headers = soup.find_all(
-            ["h1", "h2", "h3", "h4", "h5", "h6"]
-        )  # Get headers from the entire soup
+    if not headers:
+        headers = soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
 
-    for (
-        header_tag
-    ) in headers:  # Iterate over the headers found (either in or outside the body)
-        # Handle anchor tags within headers
+    for header_tag in headers:
         for a_tag in header_tag.find_all("a"):
-            a_tag.unwrap()  # Or a_tag.decompose() as needed
-        cleaned_html_parts.append(
-            str(header_tag)
-        )  # Add header tag to list - NO CONDITIONAL REMOVAL
+            a_tag.unwrap()
+        cleaned_html_parts.append(str(header_tag))
 
-    # ***KEY CHANGE: Flexible Content Retention (for non-header tags)***
     for tag in body_soup.find_all(retain_tags):
         if tag.name not in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             if any(keyword.lower() in tag.text.lower() for keyword in retain_keywords):
                 cleaned_html_parts.append(str(tag))
             elif not tag.contents or (
                 len(tag.get_text(strip=True).split()) < min_word_length
-            ):  # Use word count
+            ):
                 tag.decompose()
 
     for img in body_soup.find_all("img"):
@@ -137,18 +110,12 @@ def clean_html(
     for element in elements_to_remove:
         element.decompose()
 
-    cleaned_soup = BeautifulSoup("".join(cleaned_html_parts), "lxml")  # lxml added
-    for element in cleaned_soup.find_all():
-        if not element.contents or (
-            len(element.get_text(strip=True)) == 0 and element.name not in ["img"]
-        ):  # check if tag is not an image tag
-            element.decompose()
+    cleaned_soup = BeautifulSoup("".join(cleaned_html_parts), "lxml")
 
-    # remove empty tags
     for element in cleaned_soup.find_all():
         if not element.contents or (
             len(element.get_text(strip=True)) == 0 and element.name not in ["img"]
-        ):  # check if tag is not an image tag
+        ):
             element.decompose()
 
     return str(cleaned_soup)
@@ -157,16 +124,15 @@ def clean_html(
 def html_to_markdown(html_content):
     print("📝 Converting to markdown...")
     html2text_converter = html2text.HTML2Text()
-    html2text_converter.body_width = 0  # Prevents wrapping text improperly
-    html2text_converter.single_line_break = True  # Avoids excessive line breaks
+    html2text_converter.body_width = 0
+    html2text_converter.single_line_break = True
     markdown_content = html2text_converter.handle(html_content)
     return markdown_content
 
 
 def url_to_markdown(url, retain_images=False):
-    cleaned_html = clean_html(url, retain_images=False)
-    markdown_content = html_to_markdown(cleaned_html) if clean_html else None
-
+    cleaned_html = clean_html(url, retain_images)
+    markdown_content = html_to_markdown(cleaned_html) if cleaned_html else None
     return markdown_content
 
 
@@ -202,7 +168,7 @@ class Chomp:
 
 
 if __name__ == "__main__":
-    url = "https://www.example.com"
+    url = "https://www.example.com"  # Or any URL you want to test
     chomp = Chomp(url=url)
     markdown = chomp.url_to_markdown()
     print(markdown)
