@@ -5,6 +5,16 @@ import re
 from urllib.parse import urljoin
 
 
+def is_valid_image_url(url):
+    return url and (
+        url.startswith(("http://", "https://", "/"))
+        and any(
+            url.lower().endswith(ext)
+            for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+        )
+    )
+
+
 def get_raw_html(url):
     try:
         response = requests.get(url)
@@ -31,108 +41,166 @@ def clean_html(
     if url_or_html is None:
         return ""
 
+    # Initial parsing
     if url_or_html.startswith(("http", "https", "www")):
         print("🌐 Downloading HTML content...")
-        soup = get_raw_html(url_or_html)
+        initial_soup = get_raw_html(url_or_html)
     else:
         print("📄 Parsing provided HTML content...")
-        soup = BeautifulSoup(f"<div>{url_or_html}</div>", "lxml")
+        initial_soup = BeautifulSoup(f"<div>{url_or_html}</div>", "lxml")
 
-    body = soup.find("body")
-    if not body:
-        body = soup
+    # Get body or main content area
+    body = initial_soup.find("body") or initial_soup.find("main") or initial_soup
 
-    body_soup = BeautifulSoup(str(body), "lxml")
+    # Create new soup for cleaned content
+    cleaned_html_parts = []
+    processed_headers = set()
+    processed_images = set()
+    processed_content = set()
 
-    for tag in body_soup.find_all(["nav", "aside", "footer", "script", "style"]):
+    # Remove unwanted elements
+    for tag in body.find_all(["nav", "aside", "footer", "script", "style"]):
         tag.decompose()
 
-    cleaned_html_parts = []
-    elements_to_remove = []
-
+    # Compile regex for unwanted content
     keywords_regex = re.compile(
         r"(social|comment(s)?|sidebar|widget|menu|nav)", re.IGNORECASE
     )
 
-    # 1. Process main content containers (div, section, article, figure):
-    for element in body_soup.find_all(["div", "section", "article", "figure"]):
-        remove_element = False
-
+    def is_unwanted_element(element):
+        """Check if an element should be removed based on classes, ids, and content."""
         classes = element.get("class", [])
         ids = element.get("id", [])
 
-        if (
+        return (
             "related" in element.text.lower()
             or any(
-                keywords_regex.search(item)
+                keywords_regex.search(str(item))
                 for item in (classes if isinstance(classes, list) else [classes])
                 + (ids if isinstance(ids, list) else [ids])
                 if isinstance(item, str)
             )
             or len(element.get_text(strip=True).split()) < min_word_length
-        ):
-            remove_element = True
+        )
 
-        if retain_images and not remove_element:
+    def process_images_in_element(element):
+        """Process images within an element, handling duplicates."""
+        if retain_images:
             for img in element.find_all("img"):
                 if img.has_attr("src"):
-                    img["src"] = urljoin(url_or_html, img["src"])
+                    img_src = urljoin(url_or_html, img["src"])
+                    if img_src not in processed_images:
+                        img["src"] = img_src
+                        processed_images.add(img_src)
+                    else:
+                        img.decompose()
                 else:
                     img.decompose()
 
-        if not remove_element:  # Only add if not marked for removal
-            cleaned_html_parts.append(element)
-
-        if remove_element:
-            elements_to_remove.append(element)
-
-    # 2. Process headers (h1-h6):
-    headers = body_soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
-    for header_tag in headers:
-        for a_tag in header_tag.find_all("a"):
-            a_tag.unwrap()
-        cleaned_html_parts.append(header_tag)
-
-    # 3. Process retained tags (p, strong, etc. - excluding headers):
-    for tag in body_soup.find_all(retain_tags):
-        if tag.name not in ["h1", "h2", "h3", "h4", "h5", "h6"]:  # Exclude headers
-            if any(keyword.lower() in tag.text.lower() for keyword in retain_keywords):
-                cleaned_html_parts.append(tag)
-            elif not tag.contents or (
-                len(tag.get_text(strip=True).split()) < min_word_length
-            ):
-                tag.decompose()
-
-    # 4. Process images *outside* of other elements (important!):
-    for img in body_soup.find_all(
-        "img"
-    ):  # These might be outside the div/section/etc loop
-        # Check if already added (if they were inside retained div/section/etc)
-        if img not in cleaned_html_parts:
-            cleaned_html_parts.append(img)
-
-    for element in elements_to_remove:
-        element.decompose()
-
-    cleaned_soup = BeautifulSoup("", "lxml")
-    for element in cleaned_html_parts:
-        cleaned_soup.append(element)
-
-    for element in cleaned_soup.find_all():
-        if not element.contents or (
-            len(element.get_text(strip=True)) == 0 and element.name not in ["img"]
+    def add_element_with_spacing(element_str):
+        """Add element with appropriate spacing."""
+        cleaned_html_parts.append(element_str)
+        # Add a line break after block elements
+        if any(
+            f"<{tag}" in element_str.lower()
+            for tag in [
+                "div",
+                "p",
+                "article",
+                "section",
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "h5",
+                "h6",
+            ]
         ):
+            cleaned_html_parts.append("\n")
+
+    # Process all elements in document order
+    for element in body.find_all():
+        # Skip already processed or unwanted elements
+        if element.parent is None:  # Already extracted
+            continue
+
+        if element.name in ["nav", "aside", "footer", "script", "style"]:
+            element.decompose()
+            continue
+
+        # Process by element type while maintaining order
+        if element.name == "img" and retain_images:
+            if element.has_attr("src"):
+                img_src = urljoin(url_or_html, element["src"])
+                if img_src not in processed_images:
+                    element["src"] = img_src
+                    processed_images.add(img_src)
+                    element.extract()
+                    add_element_with_spacing(str(element))
+                else:
+                    element.decompose()
+            else:
+                element.decompose()
+
+        elif element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+            header_id = f"{element.name}:{element.get_text(strip=True)}"
+            if header_id not in processed_headers:
+                processed_headers.add(header_id)
+                for a_tag in element.find_all("a"):
+                    a_tag.unwrap()
+                element.extract()
+                add_element_with_spacing(str(element))
+
+        elif element.name in ["div", "section", "article", "figure"]:
+            if not is_unwanted_element(element):
+                content_text = element.get_text(strip=True)
+                if content_text and content_text not in processed_content:
+                    processed_content.add(content_text)
+                    element.extract()
+                    add_element_with_spacing(str(element))
+
+        elif element.name in retain_tags:
+            content_text = element.get_text(strip=True)
+            if content_text and content_text not in processed_content:
+                if any(
+                    keyword.lower() in content_text.lower()
+                    for keyword in retain_keywords
+                ) or (
+                    element.contents and len(content_text.split()) >= min_word_length
+                ):
+                    processed_content.add(content_text)
+                    element.extract()
+                    add_element_with_spacing(str(element))
+
+    # Create final cleaned HTML
+    final_html = "".join(cleaned_html_parts)
+    final_soup = BeautifulSoup(final_html, "lxml")
+
+    # Remove any remaining empty elements except images
+    for element in final_soup.find_all():
+        if not element.contents and element.name != "img":
+            element.decompose()
+        elif element.name != "img" and len(element.get_text(strip=True)) == 0:
             element.decompose()
 
-    return str(cleaned_soup)
+    return str(final_soup)
 
 
-def html_to_markdown(html_content):
+def html_to_markdown(html_content, double_space=False):
     print("📝 Converting to markdown...")
     html2text_converter = html2text.HTML2Text()
     html2text_converter.body_width = 0
     html2text_converter.single_line_break = True
+    html2text_converter.wrap_links = False
+    html2text_converter.inline_links = True
+    # Ensure proper spacing around block elements
+    html2text_converter.ignore_emphasis = False
+    html2text_converter.pad_tables = True
     markdown_content = html2text_converter.handle(html_content)
+    # Add extra line break after headers and paragraphs if needed
+    markdown_content = re.sub(r"(\#{1,6}.*)\n([^\n])", r"\1\n\n\2", markdown_content)
+    if double_space:
+        markdown_content = re.sub(r"([^\n])\n([^\n])", r"\1\n\n\2", markdown_content)
     return markdown_content
 
 
@@ -151,26 +219,32 @@ class Chomp:
         self.markdown = None
 
     def clean(self):
-        if self.url:
-            self.cleaned_html = clean_html(self.url, retain_images=self.retain_images)
-        elif self.html:
-            self.cleaned_html = clean_html(self.html, retain_images=self.retain_images)
-        else:
-            raise ValueError("Either URL or HTML content must be provided.")
+        """Clean HTML content if not already cleaned"""
+        if self.cleaned_html is None:
+            if self.url:
+                self.cleaned_html = clean_html(
+                    self.url, retain_images=self.retain_images
+                )
+            elif self.html:
+                self.cleaned_html = clean_html(
+                    self.html, retain_images=self.retain_images
+                )
+            else:
+                raise ValueError("Either URL or HTML content must be provided.")
         return self.cleaned_html
 
     def convert_to_markdown(self):
-        if not self.cleaned_html:
-            self.clean()
-        self.markdown = html_to_markdown(self.cleaned_html)
+        """Convert cleaned HTML to markdown"""
+        if self.markdown is None:
+            self.clean()  # Will only clean if not already cleaned
+            self.markdown = html_to_markdown(self.cleaned_html)
         return self.markdown
 
     def url_to_markdown(self):
+        """Convert URL directly to markdown"""
         if not self.url:
             raise ValueError("URL must be provided for this method.")
-        self.cleaned_html = clean_html(self.url, retain_images=self.retain_images)
-        self.markdown = html_to_markdown(self.cleaned_html)
-        return self.markdown
+        return self.convert_to_markdown()  # Uses existing methods
 
 
 if __name__ == "__main__":
