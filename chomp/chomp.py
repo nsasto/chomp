@@ -118,45 +118,53 @@ def clean_html(
         ):
             cleaned_html_parts.append("\n")
 
-    # Process all elements in document order
-    for element in body.find_all():
-        # Skip already processed or unwanted elements
-        if element.parent is None:  # Already extracted
-            continue
+    base_url = url_or_html if url_or_html.startswith(("http", "https")) else None
+    processed_images = set()
 
+    # Process all elements in document order, but only top-level elements
+    for element in body.find_all(recursive=False):
         if element.name in ["nav", "aside", "footer", "script", "style"]:
             element.decompose()
             continue
 
-        # Process by element type while maintaining order
+        # Handle the element based on its type
         if element.name == "img" and retain_images:
             if element.has_attr("src"):
-                img_src = urljoin(url_or_html, element["src"])
+                img_src = urljoin(base_url, element["src"])
                 if img_src not in processed_images:
                     element["src"] = img_src
                     processed_images.add(img_src)
-                    element.extract()
                     add_element_with_spacing(str(element))
-                else:
-                    element.decompose()
-            else:
-                element.decompose()
 
         elif element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             header_id = f"{element.name}:{element.get_text(strip=True)}"
             if header_id not in processed_headers:
                 processed_headers.add(header_id)
+                # Process any images inside the header first
+                if retain_images:
+                    for img in element.find_all("img"):
+                        if img.has_attr("src"):
+                            img_src = urljoin(base_url, img["src"])
+                            if img_src not in processed_images:
+                                img["src"] = img_src
+                                processed_images.add(img_src)
                 for a_tag in element.find_all("a"):
                     a_tag.unwrap()
-                element.extract()
                 add_element_with_spacing(str(element))
 
         elif element.name in ["div", "section", "article", "figure"]:
             if not is_unwanted_element(element):
+                # Keep the original content including images in place
+                if retain_images:
+                    for img in element.find_all("img"):
+                        if img.has_attr("src"):
+                            img_src = urljoin(base_url, img["src"])
+                            if img_src not in processed_images:
+                                img["src"] = img_src
+                                processed_images.add(img_src)
                 content_text = element.get_text(strip=True)
                 if content_text and content_text not in processed_content:
                     processed_content.add(content_text)
-                    element.extract()
                     add_element_with_spacing(str(element))
 
         elif element.name in retain_tags:
@@ -168,8 +176,15 @@ def clean_html(
                 ) or (
                     element.contents and len(content_text.split()) >= min_word_length
                 ):
+                    # Process any images inside retained tags
+                    if retain_images:
+                        for img in element.find_all("img"):
+                            if img.has_attr("src"):
+                                img_src = urljoin(base_url, img["src"])
+                                if img_src not in processed_images:
+                                    img["src"] = img_src
+                                    processed_images.add(img_src)
                     processed_content.add(content_text)
-                    element.extract()
                     add_element_with_spacing(str(element))
 
     # Create final cleaned HTML
