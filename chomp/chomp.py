@@ -26,7 +26,7 @@ def get_raw_html(url):
     return BeautifulSoup(html_content, "lxml")
 
 
-def clean_html(
+def parse_html(
     url_or_html=None,
     retain_images=False,
     min_word_length=2,
@@ -201,7 +201,7 @@ def clean_html(
     return str(final_soup)
 
 
-def html_to_markdown(html_content, double_space=False):
+def html_to_markdown(html_content, double_space=True):
     print("📝 Converting to markdown...")
     html2text_converter = html2text.HTML2Text()
     html2text_converter.body_width = 0
@@ -215,12 +215,25 @@ def html_to_markdown(html_content, double_space=False):
     # Add extra line break after headers and paragraphs if needed
     markdown_content = re.sub(r"(\#{1,6}.*)\n([^\n])", r"\1\n\n\2", markdown_content)
     if double_space:
-        markdown_content = re.sub(r"([^\n])\n([^\n])", r"\1\n\n\2", markdown_content)
+        # Check if the content is inside a code block
+        lines = markdown_content.split("\n")
+        inside_code_block = False
+        for i, line in enumerate(lines):
+            if line.startswith("    ") or line.startswith("\t"):
+                inside_code_block = True
+            elif inside_code_block and not (
+                line.startswith("    ") or line.startswith("\t")
+            ):
+                inside_code_block = False
+            if not inside_code_block:
+                lines[i] = re.sub(r"([^\n])\n([^\n])", r"\1\n\n\2", line)
+        markdown_content = "\n".join(lines)
+
     return markdown_content
 
 
 def url_to_markdown(url, retain_images=False):
-    cleaned_html = clean_html(url, retain_images)
+    cleaned_html = parse_html(url, retain_images)
     markdown_content = html_to_markdown(cleaned_html) if cleaned_html else None
     return markdown_content
 
@@ -237,11 +250,11 @@ class Chomp:
         """Clean HTML content if not already cleaned"""
         if self.cleaned_html is None:
             if self.url:
-                self.cleaned_html = clean_html(
+                self.cleaned_html = parse_html(
                     self.url, retain_images=self.retain_images
                 )
             elif self.html:
-                self.cleaned_html = clean_html(
+                self.cleaned_html = parse_html(
                     self.html, retain_images=self.retain_images
                 )
             else:
