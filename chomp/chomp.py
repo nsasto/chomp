@@ -144,6 +144,13 @@ def clean_html(
         ):  # check if tag is not an image tag
             element.decompose()
 
+    # remove empty tags
+    for element in cleaned_soup.find_all():
+        if not element.contents or (
+            len(element.get_text(strip=True)) == 0 and element.name not in ["img"]
+        ):  # check if tag is not an image tag
+            element.decompose()
+
     return str(cleaned_soup)
 
 
