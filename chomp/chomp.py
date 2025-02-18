@@ -54,6 +54,7 @@ def clean_html(
         r"(social|comment(s)?|sidebar|widget|menu|nav)", re.IGNORECASE
     )
 
+    # 1. Process main content containers (div, section, article, figure):
     for element in body_soup.find_all(["div", "section", "article", "figure"]):
         remove_element = False
 
@@ -75,42 +76,47 @@ def clean_html(
         if retain_images and not remove_element:
             for img in element.find_all("img"):
                 if img.has_attr("src"):
-                    img["src"] = urljoin(
-                        url_or_html, img["src"]
-                    )  # Resolve relative paths
+                    img["src"] = urljoin(url_or_html, img["src"])
                 else:
                     img.decompose()
 
+        if not remove_element:  # Only add if not marked for removal
+            cleaned_html_parts.append(element)
+
         if remove_element:
             elements_to_remove.append(element)
-        else:
-            cleaned_html_parts.append(str(element))
 
+    # 2. Process headers (h1-h6):
     headers = body_soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
-    if not headers:
-        headers = soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
-
     for header_tag in headers:
         for a_tag in header_tag.find_all("a"):
             a_tag.unwrap()
-        cleaned_html_parts.append(str(header_tag))
+        cleaned_html_parts.append(header_tag)
 
+    # 3. Process retained tags (p, strong, etc. - excluding headers):
     for tag in body_soup.find_all(retain_tags):
-        if tag.name not in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+        if tag.name not in ["h1", "h2", "h3", "h4", "h5", "h6"]:  # Exclude headers
             if any(keyword.lower() in tag.text.lower() for keyword in retain_keywords):
-                cleaned_html_parts.append(str(tag))
+                cleaned_html_parts.append(tag)
             elif not tag.contents or (
                 len(tag.get_text(strip=True).split()) < min_word_length
             ):
                 tag.decompose()
 
-    for img in body_soup.find_all("img"):
-        cleaned_html_parts.append(str(img))
+    # 4. Process images *outside* of other elements (important!):
+    for img in body_soup.find_all(
+        "img"
+    ):  # These might be outside the div/section/etc loop
+        # Check if already added (if they were inside retained div/section/etc)
+        if img not in cleaned_html_parts:
+            cleaned_html_parts.append(img)
 
     for element in elements_to_remove:
         element.decompose()
 
-    cleaned_soup = BeautifulSoup("".join(cleaned_html_parts), "lxml")
+    cleaned_soup = BeautifulSoup("", "lxml")
+    for element in cleaned_html_parts:
+        cleaned_soup.append(element)
 
     for element in cleaned_soup.find_all():
         if not element.contents or (
