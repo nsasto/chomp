@@ -102,20 +102,74 @@ def parse_html(
     
     body = initial_soup.find("body") or initial_soup.find("main") or initial_soup
     
-    # Remove unwanted elements early
-    for tag in body.find_all(["menu", "search", "nav", "aside", "footer", "script", "style"]):
-        if verbose:
-            tag_name = tag.name if tag and hasattr(tag, "name") else "unknown"
-            tag_class = tag.get("class", []) if tag and hasattr(tag, "attrs") and tag.attrs else []
-            tag_id = tag.get("id", "") if tag and hasattr(tag, "attrs") and tag.attrs else ""
+    # Remove unwanted elements early - Modified to be more thorough
+    def remove_unwanted_elements(soup):
+        """Remove unwanted elements from the HTML soup."""
+        unwanted_elements = [
+            # Direct tag names
+            "menu", "search", "nav", "aside", "footer", "script", "style",
+            # Elements with specific classes/ids
+            {"class": ["menu", "nav", "cb-mob-menu", "cb-small-nav"]},
+            {"id": ["cb-mob-menu", "cb-search-modal"]},
+            # Elements with specific roles
+            {"role": ["navigation", "menu"]}
+        ]
+        
+        for element in soup.find_all():
+            try:
+                # Skip None elements or elements without proper attributes
+                if not element or not hasattr(element, 'name'):
+                    continue
 
-            # Convert class list to a space-separated string
-            tag_class_str = " ".join(tag_class) if isinstance(tag_class, list) else str(tag_class)
+                # Check tag name
+                if element.name in unwanted_elements:
+                    if verbose:
+                        logger.info(f"Removing by tag name: <{element.name}>")
+                    element.decompose()
+                    continue
+                
+                # Skip elements without attrs
+                if not hasattr(element, 'attrs') or not element.attrs:
+                    continue
+                    
+                # Check classes and IDs
+                classes = element.attrs.get("class", [])
+                if isinstance(classes, str):
+                    classes = [classes]
+                
+                element_id = element.attrs.get("id", "")
+                element_role = element.attrs.get("role", "")
+                
+                # Check if any class contains menu-related terms
+                if any(cls and any(term in cls.lower() for term in ["menu", "nav", "sidebar"]) 
+                    for cls in classes):
+                    if verbose:
+                        logger.info(f"Removing by class: <{element.name} class='{classes}'>")
+                    element.decompose()
+                    continue
+                    
+                # Check if ID contains menu-related terms
+                if element_id and any(term in element_id.lower() 
+                                    for term in ["menu", "nav", "sidebar"]):
+                    if verbose:
+                        logger.info(f"Removing by ID: <{element.name} id='{element_id}'>")
+                    element.decompose()
+                    continue
 
-            logger.info(f"Marked for removal: <{tag_name} class='{tag_class_str}' id='{tag_id}'>")
+                # Check role attribute
+                if element_role and element_role.lower() in ["navigation", "menu"]:
+                    if verbose:
+                        logger.info(f"Removing by role: <{element.name} role='{element_role}'>")
+                    element.decompose()
+                    continue
 
-        tag.decompose()
+            except AttributeError as e:
+                if verbose:
+                    logger.warning(f"Skipping element due to AttributeError: {str(e)}")
+                continue
 
+    # Apply the removal function
+    remove_unwanted_elements(body)
 
     keywords_regex = re.compile(r"(social|comment(s)?|sidebar|widget|menu|nav)", re.IGNORECASE)
     processed_headers = set()
@@ -133,8 +187,7 @@ def parse_html(
         ids = element.get("id", [])
         
         is_unwanted = (
-            "related" in element.text.lower()
-            or any(
+            any(
                 keywords_regex.search(str(item))
                 for item in (classes if isinstance(classes, list) else [classes])
                 + (ids if isinstance(ids, list) else [ids])
