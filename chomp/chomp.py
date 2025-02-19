@@ -67,56 +67,36 @@ def parse_html(
 ) -> str:
     """
     Parse and clean HTML content from a URL or raw HTML string.
-
-    Args:
-        url_or_html (str, optional): URL or HTML content to parse
-        retain_images (bool): Whether to keep images in output
-        min_word_length (int): Minimum number of words for text content
-        retain_tags (List[str]): HTML tags to preserve
-        retain_keywords (List[str]): Keywords to retain in content
-
-    Returns:
-        str: Cleaned HTML content
     """
-    if retain_tags is None:
-        retain_tags = ["p", "strong", "h1", "h2", "h3", "h4", "h5", "h6"]
-    if retain_keywords is None:
-        retain_keywords = []
-
-    if url_or_html is None:
+    if not url_or_html:
         return ""
 
+    retain_tags = retain_tags or ["p", "strong", "h1", "h2", "h3", "h4", "h5", "h6"]
+    retain_keywords = retain_keywords or []
+    
     # Initial parsing
-    if url_or_html.startswith(("http", "https", "www")):
-        print("🌐 Downloading HTML content...")
-        initial_soup = get_raw_html(url_or_html)
-    else:
-        print("📄 Parsing provided HTML content...")
-        initial_soup = BeautifulSoup(f"<div>{url_or_html}</div>", "lxml")
-
-    # Get body or main content area
+    is_url = url_or_html.startswith(("http", "https", "www"))
+    print("🌐 Downloading HTML content..." if is_url else "📄 Parsing provided HTML content...")
+    initial_soup = get_raw_html(url_or_html) if is_url else BeautifulSoup(f"<div>{url_or_html}</div>", "lxml")
+    
     body = initial_soup.find("body") or initial_soup.find("main") or initial_soup
-
-    # Create new soup for cleaned content
-    cleaned_html_parts = []
-    processed_headers = set()
-    processed_images = set()
-    processed_content = set()
-
-    # Remove unwanted elements
+    
+    # Remove unwanted elements early
     for tag in body.find_all(["nav", "aside", "footer", "script", "style"]):
         tag.decompose()
 
-    # Compile regex for unwanted content
-    keywords_regex = re.compile(
-        r"(social|comment(s)?|sidebar|widget|menu|nav)", re.IGNORECASE
-    )
+    keywords_regex = re.compile(r"(social|comment(s)?|sidebar|widget|menu|nav)", re.IGNORECASE)
+    processed_headers = set()
+    processed_content = set()
+    processed_images = set()
+    cleaned_html_parts = []
+    base_url = url_or_html if is_url else None
 
     def is_unwanted_element(element):
-        """Check if an element should be removed based on classes, ids, and content."""
+        """Check if an element should be removed."""
         classes = element.get("class", [])
         ids = element.get("id", [])
-
+        
         return (
             "related" in element.text.lower()
             or any(
@@ -128,12 +108,12 @@ def parse_html(
             or len(element.get_text(strip=True).split()) < min_word_length
         )
 
-    def process_images_in_element(element):
-        """Process images within an element, handling duplicates."""
+    def process_images(element):
+        """Handle image processing consistently."""
         if retain_images:
             for img in element.find_all("img"):
                 if img.has_attr("src"):
-                    img_src = urljoin(url_or_html, img["src"])
+                    img_src = urljoin(base_url, img["src"])
                     if img_src not in processed_images:
                         img["src"] = img_src
                         processed_images.add(img_src)
@@ -141,38 +121,23 @@ def parse_html(
                         img.decompose()
                 else:
                     img.decompose()
+        else:
+            for img in element.find_all("img"):
+                img.decompose()
 
     def add_element_with_spacing(element_str):
         """Add element with appropriate spacing."""
         cleaned_html_parts.append(element_str)
-        # Add a line break after block elements
-        if any(
-            f"<{tag}" in element_str.lower()
-            for tag in [
-                "div",
-                "p",
-                "article",
-                "section",
-                "h1",
-                "h2",
-                "h3",
-                "h4",
-                "h5",
-                "h6",
-            ]
-        ):
+        if any(f"<{tag}" in element_str.lower() for tag in ["div", "p", "article", "section", "h1", "h2", "h3", "h4", "h5", "h6"]):
             cleaned_html_parts.append("\n")
 
-    base_url = url_or_html if url_or_html.startswith(("http", "https")) else None
-    processed_images = set()
-
-    # Process all elements in document order, but only top-level elements
+    # Process elements
     for element in body.find_all(recursive=False):
+        # Skip already removed elements
         if element.name in ["nav", "aside", "footer", "script", "style"]:
-            element.decompose()
             continue
 
-        # Handle the element based on its type
+        # Handle images
         if element.name == "img":
             if retain_images and element.has_attr("src"):
                 img_src = urljoin(base_url, element["src"])
@@ -180,66 +145,37 @@ def parse_html(
                     element["src"] = img_src
                     processed_images.add(img_src)
                     add_element_with_spacing(str(element))
-            else:
-                element.decompose()  # Remove image if retain_images is False
+            continue
 
-        elif element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+        # Handle headers
+        if element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             header_id = f"{element.name}:{element.get_text(strip=True)}"
             if header_id not in processed_headers:
                 processed_headers.add(header_id)
-                # Remove images if retain_images is False
-                if not retain_images:
-                    for img in element.find_all("img"):
-                        img.decompose()
-                elif retain_images:
-                    for img in element.find_all("img"):
-                        if img.has_attr("src"):
-                            img_src = urljoin(base_url, img["src"])
-                            if img_src not in processed_images:
-                                img["src"] = img_src
-                                processed_images.add(img_src)
+                process_images(element)
                 for a_tag in element.find_all("a"):
                     a_tag.unwrap()
                 add_element_with_spacing(str(element))
+            continue
 
-        elif element.name in ["div", "section", "article", "figure"]:
+        # Handle container elements
+        if element.name in ["div", "section", "article", "figure"]:
             if not is_unwanted_element(element):
-                # Remove images if retain_images is False
-                if not retain_images:
-                    for img in element.find_all("img"):
-                        img.decompose()
-                elif retain_images:
-                    for img in element.find_all("img"):
-                        if img.has_attr("src"):
-                            img_src = urljoin(base_url, img["src"])
-                            if img_src not in processed_images:
-                                img["src"] = img_src
-                                processed_images.add(img_src)
+                process_images(element)
                 content_text = element.get_text(strip=True)
                 if content_text and content_text not in processed_content:
                     processed_content.add(content_text)
                     add_element_with_spacing(str(element))
+            continue
 
-        elif element.name in retain_tags:
+        # Handle retained tags
+        if element.name in retain_tags:
             content_text = element.get_text(strip=True)
             if content_text and content_text not in processed_content:
-                if any(
-                    keyword.lower() in content_text.lower()
-                    for keyword in retain_keywords
-                ) or (
+                if any(keyword.lower() in content_text.lower() for keyword in retain_keywords) or (
                     element.contents and len(content_text.split()) >= min_word_length
                 ):
-                    # Remove images if retain_images is False
-                    if not retain_images:
-                        for img in element.find_all("img"):
-                            img.decompose()
-                    elif retain_images:
-                        for img in element.find_all("img"):
-                            if img.has_attr("src"):
-                                img_src = urljoin(base_url, img["src"])
-                                if img_src not in processed_images:
-                                    img["src"] = img_src
-                                    processed_images.add(img_src)
+                    process_images(element)
                     processed_content.add(content_text)
                     add_element_with_spacing(str(element))
 
@@ -247,16 +183,12 @@ def parse_html(
     final_html = "".join(cleaned_html_parts)
     final_soup = BeautifulSoup(final_html, "lxml")
 
-    # Remove any remaining empty elements except images
+    # Final cleanup of empty elements
     for element in final_soup.find_all():
-        if not element.contents and element.name != "img":
-            element.decompose()
-        elif element.name != "img" and len(element.get_text(strip=True)) == 0:
+        if element.name != "img" and (not element.contents or not element.get_text(strip=True)):
             element.decompose()
 
     return str(final_soup)
-
-
 def html_to_markdown(html_content: str, double_space: bool = True) -> str:
     """
     Convert HTML content to markdown format.
