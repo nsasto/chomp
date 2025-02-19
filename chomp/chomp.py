@@ -69,6 +69,17 @@ def parse_html(
 ) -> str:
     """
     Parse and clean HTML content from a URL or raw HTML string.
+
+    Args:
+        url_or_html (str, optional): URL or HTML content to parse
+        retain_images (bool): Whether to keep images in output
+        min_word_length (int): Minimum word count to retain text content
+        retain_tags (List[str], optional): HTML tags to preserve (defaults to ["p", "strong", "h1"-"h6"])
+        retain_keywords (List[str], optional): Keywords that force content to be retained regardless of length
+        verbose (bool): Enable detailed logging output
+
+    Returns:
+        str: Cleaned HTML content
     """
     # Set up logging for both file and console output
     if verbose:
