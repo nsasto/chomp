@@ -109,8 +109,8 @@ def parse_html(
             # Direct tag names
             "menu", "search", "nav", "aside", "footer", "script", "style",
             # Elements with specific classes/ids
-            {"class": ["menu", "nav", "cb-mob-menu", "cb-small-nav"]},
-            {"id": ["cb-mob-menu", "cb-search-modal"]},
+            {"class": ["menu", "nav"]},
+            {"id": ["menu", "nav", "modal"]},
             # Elements with specific roles
             {"role": ["navigation", "menu"]}
         ]
