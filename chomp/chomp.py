@@ -81,25 +81,27 @@ def parse_html(
     Returns:
         str: Cleaned HTML content
     """
-    # Set up logging for both file and console output
+    # Set up logging
+    logger = logging.getLogger(__name__)
     if verbose:
-        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.DEBUG)
+    else:
         logger.setLevel(logging.INFO)
-        
-        # Remove existing handlers to avoid duplicates
-        for handler in logger.handlers[:]:
-            logger.removeHandler(handler)
-            
-        # Create console handler with formatting
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%H:%M:%S'
-        )
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
     
+    # Remove existing handlers to avoid duplicates
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        
+    # Create console handler with formatting
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
     if not url_or_html:
         return ""
 
@@ -108,7 +110,7 @@ def parse_html(
     
     # Initial parsing
     is_url = url_or_html.startswith(("http", "https", "www"))
-    print("🌐 Downloading HTML content..." if is_url else "📄 Parsing provided HTML content...")
+    logger.info("🌐 Downloading HTML content..." if is_url else "📄 Parsing provided HTML content...")
     initial_soup = get_raw_html(url_or_html) if is_url else BeautifulSoup(f"<div>{url_or_html}</div>", "lxml")
     
     body = initial_soup.find("body") or initial_soup.find("main") or initial_soup
@@ -134,8 +136,7 @@ def parse_html(
 
                 # Check tag name
                 if element.name in unwanted_elements:
-                    if verbose:
-                        logger.info(f"Removing by tag name: <{element.name}>")
+                    logger.debug(f"Removing by tag name: <{element.name}>")
                     element.decompose()
                     continue
                 
@@ -154,29 +155,25 @@ def parse_html(
                 # Check if any class contains menu-related terms
                 if any(cls and any(term in cls.lower() for term in ["menu", "nav", "sidebar"]) 
                     for cls in classes):
-                    if verbose:
-                        logger.info(f"Removing by class: <{element.name} class='{classes}'>")
+                    logger.debug(f"Removing by class: <{element.name} class='{classes}'>")
                     element.decompose()
                     continue
                     
                 # Check if ID contains menu-related terms
                 if element_id and any(term in element_id.lower() 
                                     for term in ["menu", "nav", "sidebar"]):
-                    if verbose:
-                        logger.info(f"Removing by ID: <{element.name} id='{element_id}'>")
+                    logger.debug(f"Removing by ID: <{element.name} id='{element_id}'>")
                     element.decompose()
                     continue
 
                 # Check role attribute
                 if element_role and element_role.lower() in ["navigation", "menu"]:
-                    if verbose:
-                        logger.info(f"Removing by role: <{element.name} role='{element_role}'>")
+                    logger.debug(f"Removing by role: <{element.name} role='{element_role}'>")
                     element.decompose()
                     continue
 
             except AttributeError as e:
-                if verbose:
-                    logger.warning(f"Skipping element due to AttributeError: {str(e)}")
+                logger.warning(f"Skipping element due to AttributeError: {str(e)}")
                 continue
 
     # Apply the removal function
@@ -214,29 +211,24 @@ def parse_html(
 
     def process_images(element):
         """Handle image processing consistently."""
-        if verbose:
-            logger.info(f"Processing images in <{element.name}>")
+        logger.debug(f"Processing images in <{element.name}>")
             
         if retain_images:
             for img in element.find_all("img"):
                 if img.has_attr("src"):
                     img_src = urljoin(base_url, img["src"])
                     if img_src not in processed_images:
-                        if verbose:
-                            logger.info(f"Keeping image: {img_src}")
+                        logger.debug(f"Keeping image: {img_src}")
                         img["src"] = img_src
                         processed_images.add(img_src)
                     else:
-                        if verbose:
-                            logger.info(f"Removing duplicate image: {img_src}")
+                        logger.debug(f"Removing duplicate image: {img_src}")
                         img.decompose()
                 else:
-                    if verbose:
-                        logger.info("Removing image without src attribute")
+                    logger.debug("Removing image without src attribute")
                     img.decompose()
         else:
-            if verbose:
-                logger.info("Removing all images as retain_images=False")
+            logger.debug("Removing all images as retain_images=False")
             for img in element.find_all("img"):
                 img.decompose()
 
@@ -248,8 +240,7 @@ def parse_html(
 
     # Process elements
     for element in body.find_all(recursive=False):
-        if verbose:
-            logger.info(f"Processing element: <{element.name}>")
+        logger.debug(f"Processing element: <{element.name}>")
             
         # Handle images
         if element.name == "img":
@@ -304,10 +295,9 @@ def parse_html(
         if element.name != "img" and (not element.contents or not element.get_text(strip=True)):
             element.decompose()
 
-    if verbose:
-        logger.info(f"Processed {len(processed_content)} content blocks")
-        logger.info(f"Processed {len(processed_images)} images")
-        logger.info(f"Processed {len(processed_headers)} headers")
+    logger.info(f"Processed {len(processed_content)} content blocks")
+    logger.info(f"Processed {len(processed_images)} images")
+    logger.info(f"Processed {len(processed_headers)} headers")
 
     return str(final_soup)
 
