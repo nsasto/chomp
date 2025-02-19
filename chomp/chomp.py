@@ -240,12 +240,6 @@ def parse_html(
         if verbose:
             logger.info(f"Processing element: <{element.name}>")
             
-        # Skip already removed elements
-        if element.name in ["menu", "search", "nav", "aside", "footer", "script", "style"]:
-            if verbose:
-                logger.info(f"Skipping unwanted tag: <{element.name}>")
-            continue
-
         # Handle images
         if element.name == "img":
             if retain_images and element.has_attr("src"):
