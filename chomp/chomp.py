@@ -173,20 +173,25 @@ def parse_html(
             continue
 
         # Handle the element based on its type
-        if element.name == "img" and retain_images:
-            if element.has_attr("src"):
+        if element.name == "img":
+            if retain_images and element.has_attr("src"):
                 img_src = urljoin(base_url, element["src"])
                 if img_src not in processed_images:
                     element["src"] = img_src
                     processed_images.add(img_src)
                     add_element_with_spacing(str(element))
+            else:
+                element.decompose()  # Remove image if retain_images is False
 
         elif element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             header_id = f"{element.name}:{element.get_text(strip=True)}"
             if header_id not in processed_headers:
                 processed_headers.add(header_id)
-                # Process any images inside the header first
-                if retain_images:
+                # Remove images if retain_images is False
+                if not retain_images:
+                    for img in element.find_all("img"):
+                        img.decompose()
+                elif retain_images:
                     for img in element.find_all("img"):
                         if img.has_attr("src"):
                             img_src = urljoin(base_url, img["src"])
@@ -199,8 +204,11 @@ def parse_html(
 
         elif element.name in ["div", "section", "article", "figure"]:
             if not is_unwanted_element(element):
-                # Keep the original content including images in place
-                if retain_images:
+                # Remove images if retain_images is False
+                if not retain_images:
+                    for img in element.find_all("img"):
+                        img.decompose()
+                elif retain_images:
                     for img in element.find_all("img"):
                         if img.has_attr("src"):
                             img_src = urljoin(base_url, img["src"])
@@ -221,8 +229,11 @@ def parse_html(
                 ) or (
                     element.contents and len(content_text.split()) >= min_word_length
                 ):
-                    # Process any images inside retained tags
-                    if retain_images:
+                    # Remove images if retain_images is False
+                    if not retain_images:
+                        for img in element.find_all("img"):
+                            img.decompose()
+                    elif retain_images:
                         for img in element.find_all("img"):
                             if img.has_attr("src"):
                                 img_src = urljoin(base_url, img["src"])
