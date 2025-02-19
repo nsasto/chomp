@@ -17,6 +17,7 @@ import html2text
 import re
 from typing import Optional, List, Set, Union
 from urllib.parse import urljoin
+import logging
 
 
 def is_valid_image_url(url: str) -> bool:
@@ -64,10 +65,30 @@ def parse_html(
     min_word_length: int = 2,
     retain_tags: Optional[List[str]] = None,
     retain_keywords: Optional[List[str]] = None,
+    verbose: Optional[bool] = False,
 ) -> str:
     """
     Parse and clean HTML content from a URL or raw HTML string.
     """
+    # Set up logging for both file and console output
+    if verbose:
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        
+        # Remove existing handlers to avoid duplicates
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+            
+        # Create console handler with formatting
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%H:%M:%S'
+        )
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+    
     if not url_or_html:
         return ""
 
@@ -82,8 +103,19 @@ def parse_html(
     body = initial_soup.find("body") or initial_soup.find("main") or initial_soup
     
     # Remove unwanted elements early
-    for tag in body.find_all(["nav", "aside", "footer", "script", "style"]):
+    for tag in body.find_all(["menu", "search", "nav", "aside", "footer", "script", "style"]):
+        if verbose:
+            tag_name = tag.name if tag and hasattr(tag, "name") else "unknown"
+            tag_class = tag.get("class", []) if tag and hasattr(tag, "attrs") and tag.attrs else []
+            tag_id = tag.get("id", "") if tag and hasattr(tag, "attrs") and tag.attrs else ""
+
+            # Convert class list to a space-separated string
+            tag_class_str = " ".join(tag_class) if isinstance(tag_class, list) else str(tag_class)
+
+            logger.info(f"Marked for removal: <{tag_name} class='{tag_class_str}' id='{tag_id}'>")
+
         tag.decompose()
+
 
     keywords_regex = re.compile(r"(social|comment(s)?|sidebar|widget|menu|nav)", re.IGNORECASE)
     processed_headers = set()
@@ -94,10 +126,13 @@ def parse_html(
 
     def is_unwanted_element(element):
         """Check if an element should be removed."""
+        if verbose:
+            logger.info(f"Checking element: <{element.name} class='{element.get('class', '')}' id='{element.get('id', '')}>")
+        
         classes = element.get("class", [])
         ids = element.get("id", [])
         
-        return (
+        is_unwanted = (
             "related" in element.text.lower()
             or any(
                 keywords_regex.search(str(item))
@@ -107,21 +142,37 @@ def parse_html(
             )
             or len(element.get_text(strip=True).split()) < min_word_length
         )
+        
+        if verbose and is_unwanted:
+            logger.info(f"Marked for removal: <{element.name} class='{element.get('class', '')}' id='{element.get('id', '')}'>")
+        
+        return is_unwanted
 
     def process_images(element):
         """Handle image processing consistently."""
+        if verbose:
+            logger.info(f"Processing images in <{element.name}>")
+            
         if retain_images:
             for img in element.find_all("img"):
                 if img.has_attr("src"):
                     img_src = urljoin(base_url, img["src"])
                     if img_src not in processed_images:
+                        if verbose:
+                            logger.info(f"Keeping image: {img_src}")
                         img["src"] = img_src
                         processed_images.add(img_src)
                     else:
+                        if verbose:
+                            logger.info(f"Removing duplicate image: {img_src}")
                         img.decompose()
                 else:
+                    if verbose:
+                        logger.info("Removing image without src attribute")
                     img.decompose()
         else:
+            if verbose:
+                logger.info("Removing all images as retain_images=False")
             for img in element.find_all("img"):
                 img.decompose()
 
@@ -133,8 +184,13 @@ def parse_html(
 
     # Process elements
     for element in body.find_all(recursive=False):
+        if verbose:
+            logger.info(f"Processing element: <{element.name}>")
+            
         # Skip already removed elements
-        if element.name in ["nav", "aside", "footer", "script", "style"]:
+        if element.name in ["menu", "search", "nav", "aside", "footer", "script", "style"]:
+            if verbose:
+                logger.info(f"Skipping unwanted tag: <{element.name}>")
             continue
 
         # Handle images
@@ -156,6 +212,8 @@ def parse_html(
                 for a_tag in element.find_all("a"):
                     a_tag.unwrap()
                 add_element_with_spacing(str(element))
+                if verbose:
+                    logger.info(f"Retaining header: <{header_id}>")
             continue
 
         # Handle container elements
@@ -188,7 +246,14 @@ def parse_html(
         if element.name != "img" and (not element.contents or not element.get_text(strip=True)):
             element.decompose()
 
+    if verbose:
+        logger.info(f"Processed {len(processed_content)} content blocks")
+        logger.info(f"Processed {len(processed_images)} images")
+        logger.info(f"Processed {len(processed_headers)} headers")
+
     return str(final_soup)
+
+
 def html_to_markdown(html_content: str, double_space: bool = True) -> str:
     """
     Convert HTML content to markdown format.
