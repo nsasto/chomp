@@ -20,6 +20,13 @@ Install the required dependencies:
 ```sh
 pip install requests beautifulsoup4 html2text 
 ```
+or 
+Install the required dependencies using `pip install -r requirements.txt`.
+
+or alternatively, install with pip:
+```sh
+pip install git+https://github.com/nsasto/chomp.git
+```
 
 ## 💡 Basic Usage
 
