@@ -120,8 +120,8 @@ def parse_html(
             # Direct tag names
             "menu", "search", "nav", "aside", "footer", "script", "style",
             # Elements with specific classes/ids
-            {"class": ["menu", "nav"]},
-            {"id": ["menu", "nav", "modal"]},
+            {"class": ["menu", "nav", "breadcrumb", "sidebar", "footer", "header", "search"]},
+            {"id": ["menu", "nav", "modal", "sidebar", "footer", "header", "search"]},
             # Elements with specific roles
             {"role": ["navigation", "menu"]}
         ]
@@ -182,7 +182,7 @@ def parse_html(
     # Apply the removal function
     remove_unwanted_elements(body)
 
-    keywords_regex = re.compile(r"(social|comment(s)?|sidebar|widget|menu|nav)", re.IGNORECASE)
+    keywords_regex = re.compile(r"(social|comment(s)?|sidebar|widget|menu|nav|breadcrumb)", re.IGNORECASE)
     processed_headers = set()
     processed_content = set()
     processed_images = set()
